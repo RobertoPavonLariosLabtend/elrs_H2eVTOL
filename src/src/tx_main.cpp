@@ -92,29 +92,6 @@ static TxTlmRcvPhase_e TelemetryRcvPhase = ttrpTransmitting;
 StubbornReceiver TelemetryReceiver;
 StubbornSender MspSender;
 uint8_t CRSFinBuffer[CRSF_MAX_PACKET_LEN+1];
-static uint32_t lastFakeVarioSentMs = 0;
-
-static void sendFakeVarioTelemetry()
-{
-  struct PACKED crsf_fake_vario_frame_t {
-    crsf_header_t h;
-    crsf_sensor_vario_t p;
-    uint8_t crc;
-  };
-  crsf_fake_vario_frame_t fakeVario = {0};
-
-  // Advertise a fixed vario value on the TX side so EdgeTX can discover
-  // a single sensor without affecting the normal battery fields.
-  fakeVario.p.verticalspd = htobe16(69);
-
-  CRSF::SetHeaderAndCrc(
-    (uint8_t *)&fakeVario,
-    CRSF_FRAMETYPE_VARIO,
-    CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)),
-    CRSF_ADDRESS_CRSF_TRANSMITTER
-  );
-  handset->sendTelemetryToTX((uint8_t *)&fakeVario);
-}
 device_affinity_t ui_devices[] = {
   {&Handset_device, 1},
 #ifdef HAS_LED
@@ -1550,12 +1527,6 @@ void loop()
     handset->sendTelemetryToTX(linkStatisticsFrame);
     sendCRSFTelemetryToBackpack(linkStatisticsFrame);
     TLMpacketReported = now;
-  }
-
-  if (now - lastFakeVarioSentMs >= 1000)
-  {
-    sendFakeVarioTelemetry();
-    lastFakeVarioSentMs = now;
   }
 
   if (TelemetryReceiver.HasFinishedData())

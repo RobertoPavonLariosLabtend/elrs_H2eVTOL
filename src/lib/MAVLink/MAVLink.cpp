@@ -8,6 +8,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
 #if !defined(PLATFORM_STM32)
     // Store the relative altitude for GPS altitude
     static int32_t relative_alt = 0;
+    static bool named_value_float_seen = false;
 
     for (uint8_t i = 0; i < count; i++)
     {
@@ -17,6 +18,17 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
         // convert mavlink messages to CRSF messages
         if (have_message)
         {
+            if (msg.msgid == MAVLINK_MSG_ID_NAMED_VALUE_FLOAT)
+            {
+                named_value_float_seen = true;
+                CRSF_MK_FRAME_T(crsf_sensor_vario_t)
+                crsfvario = {0};
+                // Diagnostic marker: any NAMED_VALUE_FLOAT reaching this converter forces VSpd.
+                crsfvario.p.verticalspd = htobe16(22222);
+                CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
+                handset->sendTelemetryToTX((uint8_t *)&crsfvario);
+            }
+
             // Only parse heartbeats from the autopilot (not GCS)
             if (msg.compid != MAV_COMP_ID_AUTOPILOT1)
             {
@@ -72,7 +84,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 crsfvario = {0};
                 // store relative altitude for GPS Alt so we don't have 2 Alt sensors
                 relative_alt = global_pos.relative_alt;
-                crsfvario.p.verticalspd = htobe16(-global_pos.vz); // MAVLink vz is positive down
+                crsfvario.p.verticalspd = htobe16(named_value_float_seen ? 22222 : -global_pos.vz); // MAVLink vz is positive down
                 CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
                 handset->sendTelemetryToTX((uint8_t *)&crsfvario);
                 break;
