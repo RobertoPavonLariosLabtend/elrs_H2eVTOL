@@ -3,12 +3,43 @@
     #include "ardupilot_protocol.h"
 #endif
 
+#if !defined(PLATFORM_STM32)
+static char ascii_tolower(char c)
+{
+    return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+}
+
+static bool mavlink_name_equals_ignore_case(const char *name, const char *expected, size_t expectedLen, size_t fieldLen)
+{
+    if (expectedLen > fieldLen)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < expectedLen; ++i)
+    {
+        if (ascii_tolower(name[i]) != ascii_tolower(expected[i]))
+        {
+            return false;
+        }
+    }
+
+    if (expectedLen == fieldLen)
+    {
+        return true;
+    }
+
+    return name[expectedLen] == '\0';
+}
+#endif
+
 void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset *handset)
 {
 #if !defined(PLATFORM_STM32)
     // Store the relative altitude for GPS altitude
     static int32_t relative_alt = 0;
-    static bool named_value_float_seen = false;
+    static bool h2_value_seen = false;
+    static int16_t h2_vspd_value = 0;
 
     for (uint8_t i = 0; i < count; i++)
     {
@@ -20,13 +51,22 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
         {
             if (msg.msgid == MAVLINK_MSG_ID_NAMED_VALUE_FLOAT)
             {
-                named_value_float_seen = true;
-                CRSF_MK_FRAME_T(crsf_sensor_vario_t)
-                crsfvario = {0};
-                // Diagnostic marker: any NAMED_VALUE_FLOAT reaching this converter forces VSpd.
-                crsfvario.p.verticalspd = htobe16(22222);
-                CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
-                handset->sendTelemetryToTX((uint8_t *)&crsfvario);
+                mavlink_named_value_float_t named_value_float;
+                mavlink_msg_named_value_float_decode(&msg, &named_value_float);
+
+                if (mavlink_name_equals_ignore_case(named_value_float.name, "h2", 2, sizeof(named_value_float.name)) ||
+                    mavlink_name_equals_ignore_case(named_value_float.name, "MAV_H2", 6, sizeof(named_value_float.name)))
+                {
+                    h2_value_seen = true;
+                    // VSpd is int16 and EdgeTX displays it scaled, so use h2/10 to avoid overflow.
+                    h2_vspd_value = (int16_t)(named_value_float.value * 10.0f);
+
+                    CRSF_MK_FRAME_T(crsf_sensor_vario_t)
+                    crsfvario = {0};
+                    crsfvario.p.verticalspd = htobe16(h2_vspd_value);
+                    CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
+                    handset->sendTelemetryToTX((uint8_t *)&crsfvario);
+                }
             }
 
             // Only parse heartbeats from the autopilot (not GCS)
@@ -84,7 +124,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 crsfvario = {0};
                 // store relative altitude for GPS Alt so we don't have 2 Alt sensors
                 relative_alt = global_pos.relative_alt;
-                crsfvario.p.verticalspd = htobe16(named_value_float_seen ? 22222 : -global_pos.vz); // MAVLink vz is positive down
+                crsfvario.p.verticalspd = htobe16(h2_value_seen ? h2_vspd_value : -global_pos.vz); // MAVLink vz is positive down
                 CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
                 handset->sendTelemetryToTX((uint8_t *)&crsfvario);
                 break;
