@@ -37,7 +37,8 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 // cA -> mA*100
                 crsfbatt.p.current = htobe16(battery_status.current_battery / 10);
                 crsfbatt.p.capacity = htobe32(battery_status.current_consumed) & 0x0FFF;
-                crsfbatt.p.remaining = battery_status.battery_remaining;
+                // Temporary placeholder to expose a predictable Fuel value in EdgeTX.
+                crsfbatt.p.remaining = 69;
                 CRSF::SetHeaderAndCrc((uint8_t *)&crsfbatt, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAME_SIZE(sizeof(crsf_sensor_battery_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
                 handset->sendTelemetryToTX((uint8_t *)&crsfbatt);
                 break;

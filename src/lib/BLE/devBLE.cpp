@@ -1,6 +1,6 @@
 #include "devBLE.h"
 
-#if defined(PLATFORM_ESP32)
+#if defined(PLATFORM_ESP32) && !defined(NO_BLE_JOYSTICK)
 
 #include "common.h"
 #include "crsf_protocol.h"

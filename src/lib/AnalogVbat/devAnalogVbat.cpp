@@ -84,7 +84,7 @@ static void reportVbat()
     CRSF_MK_FRAME_T(crsf_sensor_battery_t) crsfbatt = { 0 };
     // Values are MSB first (BigEndian)
     crsfbatt.p.voltage = htobe16((uint16_t)vbat);
-    // No sensors for current, capacity, or remaining available
+    crsfbatt.p.remaining = 69; // Temporary placeholder to expose Fuel in EdgeTX
 
     CRSF::SetHeaderAndCrc((uint8_t *)&crsfbatt, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAME_SIZE(sizeof(crsf_sensor_battery_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
     telemetry.AppendTelemetryPackage((uint8_t *)&crsfbatt);
