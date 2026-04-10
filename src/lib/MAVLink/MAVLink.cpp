@@ -31,6 +31,40 @@ static bool mavlink_name_equals_ignore_case(const char *name, const char *expect
 
     return name[expectedLen] == '\0';
 }
+
+static uint16_t crsf_gps_altitude_from_h2(float h2)
+{
+    int32_t crsf_altitude = (int32_t)(h2 + 1000.0f);
+
+    if (crsf_altitude < 0)
+    {
+        return 0;
+    }
+    if (crsf_altitude > 32767)
+    {
+        return 32767;
+    }
+
+    return (uint16_t)crsf_altitude;
+}
+
+static void send_h2_vario(int16_t h2_vspd_value, Handset *handset)
+{
+    CRSF_MK_FRAME_T(crsf_sensor_vario_t)
+    crsfvario = {0};
+    crsfvario.p.verticalspd = htobe16(h2_vspd_value);
+    CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
+    handset->sendTelemetryToTX((uint8_t *)&crsfvario);
+}
+
+static void send_h2_flight_mode(const char *name, Handset *handset)
+{
+    CRSF_MK_FRAME_T(crsf_flight_mode_t)
+    crsffm = {0};
+    snprintf(crsffm.p.flight_mode, sizeof(crsffm.p.flight_mode), "H2:%.12s", name);
+    CRSF::SetHeaderAndCrc((uint8_t *)&crsffm, CRSF_FRAMETYPE_FLIGHT_MODE, CRSF_FRAME_SIZE(sizeof(crsffm)), CRSF_ADDRESS_CRSF_TRANSMITTER);
+    handset->sendTelemetryToTX((uint8_t *)&crsffm);
+}
 #endif
 
 void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset *handset)
@@ -40,6 +74,8 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
     static int32_t relative_alt = 0;
     static bool h2_value_seen = false;
     static int16_t h2_vspd_value = 0;
+    static uint16_t h2_gps_altitude = 1000;
+    static char h2_debug_name[16] = "";
 
     for (uint8_t i = 0; i < count; i++)
     {
@@ -53,19 +89,20 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
             {
                 mavlink_named_value_float_t named_value_float;
                 mavlink_msg_named_value_float_decode(&msg, &named_value_float);
+                char named_value_name[sizeof(named_value_float.name) + 1];
+                memcpy(named_value_name, named_value_float.name, sizeof(named_value_float.name));
+                named_value_name[sizeof(named_value_float.name)] = '\0';
 
                 if (mavlink_name_equals_ignore_case(named_value_float.name, "h2", 2, sizeof(named_value_float.name)) ||
                     mavlink_name_equals_ignore_case(named_value_float.name, "MAV_H2", 6, sizeof(named_value_float.name)))
                 {
                     h2_value_seen = true;
-                    // VSpd is int16 and EdgeTX displays it scaled, so use h2/10 to avoid overflow.
+                    snprintf(h2_debug_name, sizeof(h2_debug_name), "H2:%.12s", named_value_name);
                     h2_vspd_value = (int16_t)(named_value_float.value * 10.0f);
+                    h2_gps_altitude = crsf_gps_altitude_from_h2(named_value_float.value);
 
-                    CRSF_MK_FRAME_T(crsf_sensor_vario_t)
-                    crsfvario = {0};
-                    crsfvario.p.verticalspd = htobe16(h2_vspd_value);
-                    CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
-                    handset->sendTelemetryToTX((uint8_t *)&crsfvario);
+                    send_h2_vario(h2_vspd_value, handset);
+                    send_h2_flight_mode(named_value_name, handset);
                 }
             }
 
@@ -105,7 +142,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 // mm -> meters + 1000
                 crsfgps.p.altitude = htobe16(gps_int.alt / 1000 + 1000);
 #else
-                crsfgps.p.altitude = htobe16((uint16_t)(relative_alt / 1000 + 1000));
+                crsfgps.p.altitude = htobe16(h2_value_seen ? h2_gps_altitude : (uint16_t)(relative_alt / 1000 + 1000));
 #endif
                 // cm/s -> km/h / 10
                 crsfgps.p.groundspeed = htobe16(gps_int.vel * 36 / 100);
@@ -146,10 +183,17 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 mavlink_msg_heartbeat_decode(&msg, &heartbeat);
                 CRSF_MK_FRAME_T(crsf_flight_mode_t)
                 crsffm = {0};
-                ap_flight_mode_name4(crsffm.p.flight_mode, ap_vehicle_from_mavtype(heartbeat.type), heartbeat.custom_mode);
+                if (h2_debug_name[0] != '\0')
+                {
+                    snprintf(crsffm.p.flight_mode, sizeof(crsffm.p.flight_mode), "%s", h2_debug_name);
+                }
+                else
+                {
+                    ap_flight_mode_name4(crsffm.p.flight_mode, ap_vehicle_from_mavtype(heartbeat.type), heartbeat.custom_mode);
+                }
                 // if we have a good flight mode, and we're armed, suffix the flight mode with a * - see Ardupilot's AP_CRSF_Telem::calc_flight_mode()
                 size_t len = strnlen(crsffm.p.flight_mode, sizeof(crsffm.p.flight_mode));
-                if (len > 0 && (len + 1 < sizeof(crsffm.p.flight_mode)) && (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED)) {
+                if (h2_debug_name[0] == '\0' && len > 0 && (len + 1 < sizeof(crsffm.p.flight_mode)) && (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED)) {
                     crsffm.p.flight_mode[len] = '*';
                     crsffm.p.flight_mode[len + 1] = '\0';
                 }
