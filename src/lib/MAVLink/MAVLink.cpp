@@ -4,6 +4,9 @@
 #endif
 
 #if !defined(PLATFORM_STM32)
+bool mavlink_errcode_seen = false;
+uint8_t mavlink_errcode_value = 0;
+
 static char ascii_tolower(char c)
 {
     return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
@@ -103,6 +106,12 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
 
                     send_h2_vario(h2_vspd_value, handset);
                     send_h2_flight_mode(named_value_name, handset);
+                }
+                else if (mavlink_name_equals_ignore_case(named_value_float.name, "errcode", 7, sizeof(named_value_float.name)) ||
+                         mavlink_name_equals_ignore_case(named_value_float.name, "errorcode", 9, sizeof(named_value_float.name)))
+                {
+                    mavlink_errcode_seen = true;
+                    mavlink_errcode_value = named_value_float.value < 0.0f ? 0 : (uint8_t)named_value_float.value;
                 }
             }
 

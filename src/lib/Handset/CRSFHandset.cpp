@@ -4,6 +4,9 @@
 #include "logging.h"
 #include "helpers.h"
 
+extern bool mavlink_errcode_seen;
+extern uint8_t mavlink_errcode_value;
+
 #if defined(CRSF_TX_MODULE) && !defined(UNIT_TEST)
 #include "device.h"
 
@@ -153,11 +156,17 @@ void CRSFHandset::makeLinkStatisticsPacket(uint8_t *buffer)
 {
     // Note size of crsfLinkStatistics_t used, not full elrsLinkStatistics_t
     constexpr uint8_t payloadLen = sizeof(crsfLinkStatistics_t);
+    crsfLinkStatistics_t handsetLinkStats = CRSF::LinkStatistics;
+
+    if (mavlink_errcode_seen)
+    {
+        handsetLinkStats.rf_Mode = mavlink_errcode_value;
+    }
 
     buffer[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
     buffer[1] = CRSF_FRAME_SIZE(payloadLen);
     buffer[2] = CRSF_FRAMETYPE_LINK_STATISTICS;
-    memcpy(&buffer[3], (uint8_t *)&CRSF::LinkStatistics, payloadLen);
+    memcpy(&buffer[3], (uint8_t *)&handsetLinkStats, payloadLen);
     buffer[payloadLen + 3] = crsf_crc.calc(&buffer[2], payloadLen + 1);
 }
 
