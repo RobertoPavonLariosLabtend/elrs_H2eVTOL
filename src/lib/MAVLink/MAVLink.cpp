@@ -6,6 +6,8 @@
 #if !defined(PLATFORM_STM32)
 bool mavlink_errcode_seen = false;
 uint8_t mavlink_errcode_value = 0;
+bool mavlink_outcurr_seen = false;
+uint16_t mavlink_outcurr_heading_value = 0;
 
 static char ascii_tolower(char c)
 {
@@ -124,6 +126,23 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                     mavlink_errcode_seen = true;
                     mavlink_errcode_value = named_value_float.value < 0.0f ? 0 : (uint8_t)named_value_float.value;
                 }
+                else if (mavlink_name_equals_ignore_case(named_value_float.name, "outcurr", 7, sizeof(named_value_float.name)) ||
+                         mavlink_name_equals_ignore_case(named_value_float.name, "MAV_OUTCURR", 11, sizeof(named_value_float.name)))
+                {
+                    mavlink_outcurr_seen = true;
+                    if (named_value_float.value < 0.0f)
+                    {
+                        mavlink_outcurr_heading_value = 0;
+                    }
+                    else if (named_value_float.value > 655.35f)
+                    {
+                        mavlink_outcurr_heading_value = 65535;
+                    }
+                    else
+                    {
+                        mavlink_outcurr_heading_value = (uint16_t)(named_value_float.value * 100.0f);
+                    }
+                }
             }
 
             // Only parse heartbeats from the autopilot (not GCS)
@@ -168,7 +187,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 crsfgps.p.groundspeed = htobe16(gps_int.vel * 36 / 100);
                 crsfgps.p.latitude = htobe32(gps_int.lat);
                 crsfgps.p.longitude = htobe32(gps_int.lon);
-                crsfgps.p.gps_heading = htobe16(gps_int.cog);
+                crsfgps.p.gps_heading = htobe16(mavlink_outcurr_seen ? mavlink_outcurr_heading_value : gps_int.cog);
                 crsfgps.p.satellites_in_use = gps_int.satellites_visible;
                 CRSF::SetHeaderAndCrc((uint8_t *)&crsfgps, CRSF_FRAMETYPE_GPS, CRSF_FRAME_SIZE(sizeof(crsf_sensor_gps_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
                 handset->sendTelemetryToTX((uint8_t *)&crsfgps);
