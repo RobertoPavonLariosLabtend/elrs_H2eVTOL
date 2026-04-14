@@ -51,13 +51,20 @@ static uint16_t crsf_gps_altitude_from_h2(float h2)
     return (uint16_t)crsf_altitude;
 }
 
-static void send_h2_vario(int16_t h2_vspd_value, Handset *handset)
+static int16_t crsf_vspd_from_named_value(float value, float scale)
 {
-    CRSF_MK_FRAME_T(crsf_sensor_vario_t)
-    crsfvario = {0};
-    crsfvario.p.verticalspd = htobe16(h2_vspd_value);
-    CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
-    handset->sendTelemetryToTX((uint8_t *)&crsfvario);
+    float scaled = value * scale;
+
+    if (scaled < -32768.0f)
+    {
+        scaled = -32768.0f;
+    }
+    if (scaled > 32767.0f)
+    {
+        scaled = 32767.0f;
+    }
+
+    return (int16_t)scaled;
 }
 
 static void send_h2_flight_mode(const char *name, Handset *handset)
@@ -76,9 +83,10 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
     // Store the relative altitude for GPS altitude
     static int32_t relative_alt = 0;
     static bool h2_value_seen = false;
-    static int16_t h2_vspd_value = 0;
     static uint16_t h2_gps_altitude = 1000;
     static char h2_debug_name[16] = "";
+    static bool outvolt_value_seen = false;
+    static int16_t outvolt_vspd_value = 0;
 
     for (uint8_t i = 0; i < count; i++)
     {
@@ -101,11 +109,14 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 {
                     h2_value_seen = true;
                     snprintf(h2_debug_name, sizeof(h2_debug_name), "H2:%.12s", named_value_name);
-                    h2_vspd_value = (int16_t)(named_value_float.value * 10.0f);
                     h2_gps_altitude = crsf_gps_altitude_from_h2(named_value_float.value);
-
-                    send_h2_vario(h2_vspd_value, handset);
                     send_h2_flight_mode(named_value_name, handset);
+                }
+                else if (mavlink_name_equals_ignore_case(named_value_float.name, "outvolt", 7, sizeof(named_value_float.name)) ||
+                         mavlink_name_equals_ignore_case(named_value_float.name, "MAV_OUTVOLT", 11, sizeof(named_value_float.name)))
+                {
+                    outvolt_value_seen = true;
+                    outvolt_vspd_value = crsf_vspd_from_named_value(named_value_float.value, 100.0f);
                 }
                 else if (mavlink_name_equals_ignore_case(named_value_float.name, "errcode", 7, sizeof(named_value_float.name)) ||
                          mavlink_name_equals_ignore_case(named_value_float.name, "errorcode", 9, sizeof(named_value_float.name)))
@@ -170,7 +181,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 crsfvario = {0};
                 // store relative altitude for GPS Alt so we don't have 2 Alt sensors
                 relative_alt = global_pos.relative_alt;
-                crsfvario.p.verticalspd = htobe16(h2_value_seen ? h2_vspd_value : -global_pos.vz); // MAVLink vz is positive down
+                crsfvario.p.verticalspd = htobe16(outvolt_value_seen ? outvolt_vspd_value : -global_pos.vz); // MAVLink vz is positive down
                 CRSF::SetHeaderAndCrc((uint8_t *)&crsfvario, CRSF_FRAMETYPE_VARIO, CRSF_FRAME_SIZE(sizeof(crsf_sensor_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
                 handset->sendTelemetryToTX((uint8_t *)&crsfvario);
                 break;
