@@ -8,6 +8,8 @@ bool mavlink_errcode_seen = false;
 uint8_t mavlink_errcode_value = 0;
 bool mavlink_outcurr_seen = false;
 uint16_t mavlink_outcurr_heading_value = 0;
+bool mavlink_batvolt_seen = false;
+uint16_t mavlink_batvolt_groundspeed_value = 0;
 
 static char ascii_tolower(char c)
 {
@@ -143,6 +145,23 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                         mavlink_outcurr_heading_value = (uint16_t)(named_value_float.value * 100.0f);
                     }
                 }
+                else if (mavlink_name_equals_ignore_case(named_value_float.name, "batvolt", 7, sizeof(named_value_float.name)) ||
+                         mavlink_name_equals_ignore_case(named_value_float.name, "MAV_BATVOLT", 11, sizeof(named_value_float.name)))
+                {
+                    mavlink_batvolt_seen = true;
+                    if (named_value_float.value < 0.0f)
+                    {
+                        mavlink_batvolt_groundspeed_value = 0;
+                    }
+                    else if (named_value_float.value > 6553.5f)
+                    {
+                        mavlink_batvolt_groundspeed_value = 65535;
+                    }
+                    else
+                    {
+                        mavlink_batvolt_groundspeed_value = (uint16_t)(named_value_float.value * 10.0f);
+                    }
+                }
             }
 
             // Only parse heartbeats from the autopilot (not GCS)
@@ -184,7 +203,7 @@ void convert_mavlink_to_crsf_telem(uint8_t *CRSFinBuffer, uint8_t count, Handset
                 crsfgps.p.altitude = htobe16(h2_value_seen ? h2_gps_altitude : (uint16_t)(relative_alt / 1000 + 1000));
 #endif
                 // cm/s -> km/h / 10
-                crsfgps.p.groundspeed = htobe16(gps_int.vel * 36 / 100);
+                crsfgps.p.groundspeed = htobe16(mavlink_batvolt_seen ? mavlink_batvolt_groundspeed_value : (uint16_t)(gps_int.vel * 36 / 100));
                 crsfgps.p.latitude = htobe32(gps_int.lat);
                 crsfgps.p.longitude = htobe32(gps_int.lon);
                 crsfgps.p.gps_heading = htobe16(mavlink_outcurr_seen ? mavlink_outcurr_heading_value : gps_int.cog);
