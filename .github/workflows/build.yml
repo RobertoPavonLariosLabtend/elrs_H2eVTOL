@@ -37,6 +37,9 @@ jobs:
     - name: Run PlatformIO Tests
       run: |
         cd src
+        # CI must not consume repository-local user_defines values such as
+        # binding phrases or radio domains; tests provide their own flags.
+        : > user_defines.txt
         platformio pkg install --platform native
         platformio pkg update
         PLATFORMIO_BUILD_FLAGS="-DRegulatory_Domain_ISM_2400" pio test -e native
@@ -93,6 +96,9 @@ jobs:
       run: |
         mkdir -p ~/artifacts/firmware
         cd src
+        # Build release artifacts with CI-provided domains only, ignoring
+        # any repository-local user_defines customizations.
+        : > user_defines.txt
         platformio pkg install --platform native
         platformio pkg update
         case ${{matrix.target}} in
