@@ -3,7 +3,6 @@
     #include "ardupilot_protocol.h"
 #endif
 
-#if !defined(PLATFORM_STM32)
 bool mavlink_errcode_seen = false;
 uint8_t mavlink_errcode_value = 0;
 bool mavlink_outcurr_seen = false;
@@ -11,6 +10,7 @@ uint16_t mavlink_outcurr_heading_value = 0;
 bool mavlink_batvolt_seen = false;
 uint16_t mavlink_batvolt_groundspeed_value = 0;
 
+#if !defined(PLATFORM_STM32)
 static char ascii_tolower(char c)
 {
     return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
