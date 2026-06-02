@@ -18,6 +18,24 @@ target_name = env.get('PIOENV', '').upper()
 
 isRX = True if '_RX_' in target_name else False
 
+def contains_non_ascii(value):
+    return any(ord(ch) > 127 for ch in value)
+
+def relocate_build_dir_for_windows():
+    project_dir = env.get('PROJECT_DIR', '')
+    if os.name != 'nt' or not project_dir or not contains_non_ascii(project_dir):
+        return
+
+    drive, _ = os.path.splitdrive(project_dir)
+    if not drive:
+        drive = os.environ.get('SystemDrive', 'C:')
+    build_root = os.path.join(drive + os.sep, 'elrs-pio-build')
+
+    env.Replace(PROJECT_BUILD_DIR=build_root)
+    env.Replace(BUILD_DIR=os.path.join(build_root, env.get('PIOENV', '')))
+    sys.stdout.write("Windows non-ASCII project path detected, using build dir: %s\n" % env['BUILD_DIR'])
+    sys.stdout.flush()
+
 def print_error(error):
     time.sleep(1)
     sys.stdout.write("\n\n\033[47;31m%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n")
@@ -138,6 +156,7 @@ def get_version():
 json_flags['flash-discriminator'] = randint(1,2**32-1)
 json_flags['wifi-on-interval'] = -1
 
+relocate_build_dir_for_windows()
 process_flags("user_defines.txt")
 process_flags("super_defines.txt") # allow secret super_defines to override user_defines
 version_to_env()
